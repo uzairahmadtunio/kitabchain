@@ -566,7 +566,7 @@ function SellPage() {
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-sm text-slate-300">
                     <Sparkles className="w-4 h-4 text-accent" />
-                    {cameraError ? "Camera unavailable · grant permission to scan" : "Live camera feed ready · back camera active"}
+                    {cameraError ? "Camera unavailable · grant permission to scan" : "Real-time Barcode Scanner Active"}
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
