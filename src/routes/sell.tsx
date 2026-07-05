@@ -93,12 +93,12 @@ function SellPage() {
     return "Nice — your price is already comfortably below the market value.";
   }, [form.is_donation, form.market_price, form.price, form.title, marketValue, sellingValue]);
 
-  const lookupIsbn = async (isbn: string) => {
-    const normalizedIsbn = isbn.replace(/\D/g, "");
+  const handleBookLookup = async (isbnCode: string) => {
+    const normalizedIsbn = isbnCode.trim();
     if (!normalizedIsbn) return;
 
     try {
-      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${normalizedIsbn}`);
+      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn=${normalizedIsbn}`);
       if (!response.ok) throw new Error("Google Books lookup failed");
 
       const payload = (await response.json()) as {
@@ -112,25 +112,25 @@ function SellPage() {
         }>;
       };
 
-      const book = payload.items?.[0]?.volumeInfo;
-      if (!book) {
+      const volumeInfo = payload.items?.[0]?.volumeInfo;
+      if (!volumeInfo) {
         toast.error("No book details were found for this ISBN.");
         setAiScanStatus("idle");
         return;
       }
 
-      const title = book.title?.trim() || "";
-      const authors = book.authors?.join(", ") || "";
-      const description = book.description?.trim() || "";
-      const thumbnail = book.imageLinks?.thumbnail || null;
+      const title = volumeInfo.title || "";
+      const author = volumeInfo.authors ? volumeInfo.authors.join(", ") : "";
+      const description = volumeInfo.description || "";
+      const thumbnail = volumeInfo.imageLinks?.thumbnail || "";
 
       setForm((prev) => ({
         ...prev,
-        title: prev.title.trim() ? prev.title : title,
-        author: prev.author.trim() ? prev.author : authors,
-        description: prev.description.trim() ? prev.description : description,
+        title,
+        author,
+        description,
       }));
-      setScannerThumbnail(thumbnail);
+      setScannerThumbnail(thumbnail || null);
       setAiScanStatus("filled");
       toast.success("ISBN scanned and book details loaded.");
     } catch (error) {
@@ -186,14 +186,14 @@ function SellPage() {
         void codeReader.decodeFromVideoDevice(undefined, videoRef.current!, (result, error) => {
           if (cancelled || scanHandledRef.current || !result || error) return;
 
-          const normalized = result.getText().replace(/\D/g, "");
-          if (normalized.length !== 13) return;
+          const detectedBarcode = result.getText();
+          if (!detectedBarcode.trim()) return;
 
           scanHandledRef.current = true;
-          setScannerText(normalized);
+          setScannerText(detectedBarcode);
           setAiScanStatus("scanning");
           stopCamera();
-          void lookupIsbn(normalized);
+          void handleBookLookup(detectedBarcode);
         });
       } catch (error) {
         if (cancelled) return;
@@ -573,7 +573,7 @@ function SellPage() {
                   <Input value={scannerText} onChange={(e) => setScannerText(e.target.value)} placeholder="ISBN / mock lookup" />
                   <Button type="button" variant="outline" onClick={() => {
                     if (scannerText.trim()) {
-                      void lookupIsbn(scannerText.trim());
+                      void handleBookLookup(scannerText);
                     }
                   }}>
                     <Search className="w-4 h-4" />
