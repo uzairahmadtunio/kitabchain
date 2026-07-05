@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { BrowserMultiFormatReader } from "@zxing/library";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/app-layout";
 import { Card } from "@/components/ui/card";
@@ -32,6 +33,7 @@ function SellPage() {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [scannerText, setScannerText] = useState("");
+  const [scannerThumbnail, setScannerThumbnail] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
@@ -41,6 +43,7 @@ function SellPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanHandledRef = useRef(false);
   const [uploading, setUploading] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [listingId, setListingId] = useState<string | null>(null);
@@ -90,11 +93,70 @@ function SellPage() {
     return "Nice — your price is already comfortably below the market value.";
   }, [form.is_donation, form.market_price, form.price, form.title, marketValue, sellingValue]);
 
+  const lookupIsbn = async (isbn: string) => {
+    const normalizedIsbn = isbn.replace(/\D/g, "");
+    if (!normalizedIsbn) return;
+
+    try {
+      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${normalizedIsbn}`);
+      if (!response.ok) throw new Error("Google Books lookup failed");
+
+      const payload = (await response.json()) as {
+        items?: Array<{
+          volumeInfo?: {
+            title?: string;
+            authors?: string[];
+            description?: string;
+            imageLinks?: { thumbnail?: string };
+          };
+        }>;
+      };
+
+      const book = payload.items?.[0]?.volumeInfo;
+      if (!book) {
+        toast.error("No book details were found for this ISBN.");
+        setAiScanStatus("idle");
+        return;
+      }
+
+      const title = book.title?.trim() || "";
+      const authors = book.authors?.join(", ") || "";
+      const description = book.description?.trim() || "";
+      const thumbnail = book.imageLinks?.thumbnail || null;
+
+      setForm((prev) => ({
+        ...prev,
+        title: prev.title.trim() ? prev.title : title,
+        author: prev.author.trim() ? prev.author : authors,
+        description: prev.description.trim() ? prev.description : description,
+      }));
+      setScannerThumbnail(thumbnail);
+      setAiScanStatus("filled");
+      toast.success("ISBN scanned and book details loaded.");
+    } catch (error) {
+      console.error("ISBN lookup failed:", error);
+      toast.error("Could not fetch book details for this ISBN.");
+      setAiScanStatus("idle");
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
+    let codeReader: BrowserMultiFormatReader | null = null;
+
+    const stopCamera = () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      codeReader?.reset();
+    };
 
     const startCamera = async () => {
-      if (!navigator.mediaDevices?.getUserMedia) {
+      if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || !videoRef.current) {
         if (!cancelled) {
           setCameraError("Camera access is not supported in this browser.");
         }
@@ -113,11 +175,26 @@ function SellPage() {
 
         streamRef.current = stream;
         setCameraError(null);
+        scanHandledRef.current = false;
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => undefined);
         }
+
+        codeReader = new BrowserMultiFormatReader();
+        void codeReader.decodeFromVideoDevice(undefined, videoRef.current!, (result, error) => {
+          if (cancelled || scanHandledRef.current || !result || error) return;
+
+          const normalized = result.getText().replace(/\D/g, "");
+          if (normalized.length !== 13) return;
+
+          scanHandledRef.current = true;
+          setScannerText(normalized);
+          setAiScanStatus("scanning");
+          stopCamera();
+          void lookupIsbn(normalized);
+        });
       } catch (error) {
         if (cancelled) return;
 
@@ -134,13 +211,7 @@ function SellPage() {
 
     return () => {
       cancelled = true;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      stopCamera();
     };
   }, []);
 
@@ -487,6 +558,11 @@ function SellPage() {
                         <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
                       )}
                     </div>
+                    {scannerThumbnail ? (
+                      <div className="mt-3 flex justify-center">
+                        <img src={scannerThumbnail} alt="Scanned book cover" className="h-20 w-16 rounded-md object-cover shadow-lg" />
+                      </div>
+                    ) : null}
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-sm text-slate-300">
                     <Sparkles className="w-4 h-4 text-accent" />
@@ -497,7 +573,7 @@ function SellPage() {
                   <Input value={scannerText} onChange={(e) => setScannerText(e.target.value)} placeholder="ISBN / mock lookup" />
                   <Button type="button" variant="outline" onClick={() => {
                     if (scannerText.trim()) {
-                      toast.success("Mock scan ready — ISBN lookup would start here.");
+                      void lookupIsbn(scannerText.trim());
                     }
                   }}>
                     <Search className="w-4 h-4" />
