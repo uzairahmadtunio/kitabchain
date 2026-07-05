@@ -32,12 +32,15 @@ function SellPage() {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [scannerText, setScannerText] = useState("");
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [aiScanStatus, setAiScanStatus] = useState<"idle" | "scanning" | "filled">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [listingId, setListingId] = useState<string | null>(null);
@@ -86,6 +89,60 @@ function SellPage() {
     }
     return "Nice — your price is already comfortably below the market value.";
   }, [form.is_donation, form.market_price, form.price, form.title, marketValue, sellingValue]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const startCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (!cancelled) {
+          setCameraError("Camera access is not supported in this browser.");
+        }
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        setCameraError(null);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+      } catch (error) {
+        if (cancelled) return;
+
+        console.error("Camera access failed:", error);
+        const message = error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Camera permission was denied. Please allow camera access and try again."
+          : "Unable to access the camera right now.";
+        setCameraError(message);
+        toast.error(message);
+      }
+    };
+
+    void startCamera();
+
+    return () => {
+      cancelled = true;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!user || !editId) return;
@@ -421,11 +478,19 @@ function SellPage() {
                     <span className="rounded-full bg-accent/20 px-2 py-0.5 text-accent">Live</span>
                   </div>
                   <div className="mt-3 rounded-xl border border-dashed border-white/20 p-4">
-                    <div className="mx-auto h-24 w-40 rounded-lg border border-white/10 bg-gradient-to-br from-white/10 to-transparent" />
+                    <div className="mx-auto aspect-[4/3] w-full max-w-[16rem] overflow-hidden rounded-lg border border-white/10 bg-black">
+                      {cameraError ? (
+                        <div className="flex h-full items-center justify-center px-3 text-center text-sm text-slate-300">
+                          {cameraError}
+                        </div>
+                      ) : (
+                        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                      )}
+                    </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-sm text-slate-300">
                     <Sparkles className="w-4 h-4 text-accent" />
-                    Scan mode ready · tap to mock a successful read
+                    {cameraError ? "Camera unavailable · grant permission to scan" : "Live camera feed ready · back camera active"}
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
