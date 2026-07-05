@@ -539,7 +539,7 @@ function SellPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-semibold text-primary">AI barcode scanner</div>
-                    <p className="text-sm text-muted-foreground">A polished scanner mockup for fast ISBN capture and lookup.</p>
+                    <p className="text-sm text-muted-foreground">Scan an ISBN with your camera or enter it manually to auto-fill the book details.</p>
                   </div>
                   <div className="rounded-full bg-accent/15 p-2 text-accent"><Camera className="w-5 h-5" /></div>
                 </div>
@@ -570,11 +570,9 @@ function SellPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <Input value={scannerText} onChange={(e) => setScannerText(e.target.value)} placeholder="ISBN / mock lookup" />
+                  <Input value={scannerText} onChange={(e) => setScannerText(e.target.value)} placeholder="ISBN" />
                   <Button type="button" variant="outline" onClick={() => {
-                    if (scannerText.trim()) {
-                      void handleBookLookup(scannerText);
-                    }
+                    void handleBookLookup(scannerText.trim());
                   }}>
                     <Search className="w-4 h-4" />
                   </Button>
